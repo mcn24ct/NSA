@@ -1,0 +1,13 @@
+# Bỏ qua toàn bộ các thư mục nặng và thư mục không dùng tới
+01_Models_Weights/
+02_Runtime_Engines/
+03_Datasets_NASA/
+Agent/
+
+# Bỏ qua các file rác sinh ra trong quá trình chạy Python bên trong 04_Source_Code
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.ipynb_checkpoints/
