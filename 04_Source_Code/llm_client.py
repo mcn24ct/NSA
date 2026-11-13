@@ -8,6 +8,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any
 
+import cv2
 import psutil
 import requests
 from pydantic import BaseModel
@@ -21,7 +22,7 @@ class LlamaServerManager:
     def __init__(
         self,
         model_path: Path,
-        ctx_size: int,
+        ctx_size: int = 2048,
         mmproj_path: Path | None = None,
         disable_thinking: bool = False,
         port: int = config.SERVER_PORT,
@@ -155,9 +156,21 @@ class LlamaServerManager:
         self.stop()
 
     @staticmethod
-    def encode_image_base64(image_path: Path) -> str:
-        """Encode a local PNG/JPEG file into a Base64 data URI string."""
-        raw_bytes = image_path.read_bytes()
+    def encode_image_base64(image_path: Path, max_dim: int = 640) -> str:
+        """Downscale longest edge to <= max_dim via INTER_AREA and encode to Base64 URI."""
+        img = cv2.imread(str(image_path), cv2.IMREAD_UNCHANGED)
+        if img is not None:
+            height, width = img.shape[:2]
+            longest = max(height, width)
+            if longest > max_dim:
+                scale = max_dim / float(longest)
+                new_w = max(1, int(round(width * scale)))
+                new_h = max(1, int(round(height * scale)))
+                img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+            ok, encoded = cv2.imencode(".png", img)
+            raw_bytes = encoded.tobytes() if ok else image_path.read_bytes()
+        else:
+            raw_bytes = image_path.read_bytes()
         b64_str = base64.b64encode(raw_bytes).decode("ascii")
         return f"data:image/png;base64,{b64_str}"
 
@@ -166,10 +179,13 @@ class LlamaServerManager:
         image_path: Path,
         system_prompt: str,
         user_prompt: str,
-        max_tokens: int = 512,
+        max_tokens: int = 200,
+        temperature: float = 0.1,
+        cache_prompt: bool = False,
+        max_image_dim: int = 640,
     ) -> str:
         """Send a multimodal vision request to Qwen2.5-VL via OpenAI chat API."""
-        image_uri = self.encode_image_base64(image_path)
+        image_uri = self.encode_image_base64(image_path, max_dim=max_image_dim)
         payload: dict[str, Any] = {
             "messages": [
                 {"role": "system", "content": system_prompt},
@@ -181,8 +197,9 @@ class LlamaServerManager:
                     ],
                 },
             ],
-            "temperature": config.TEMPERATURE,
+            "cache_prompt": cache_prompt,
             "max_tokens": max_tokens,
+            "temperature": temperature,
         }
         response = requests.post(
             f"{self.base_url}/v1/chat/completions",

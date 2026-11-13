@@ -21,7 +21,15 @@ from schemas import (
     ExperimentExtraction,
     ExperimentIngestBundle,
     TextBlock,
+    VisualAsset,
     VisualDescription,
+)
+from stage2_vision import (
+    VLM_CTX_SIZE,
+    VLM_MAX_IMAGE_DIM,
+    VLM_MAX_TOKENS,
+    VLM_TEMPERATURE,
+    run_stage2_vision,
 )
 from scoring_engine import (
     WEIGHTS,
@@ -231,15 +239,26 @@ class TestFlameInFreefallPipeline(unittest.TestCase):
 
     def test_06_pipeline_visualizer_generates_flow_md(self) -> None:
         """Run pipeline_visualizer.py and verify PIPELINE_FLOW.md is generated completely."""
-        out_path = run_visualizer()
-        self.assertTrue(out_path.exists())
-        text = out_path.read_text(encoding="utf-8")
-        self.assertIn("```mermaid", text)
-        self.assertIn("flowchart TD", text)
-        self.assertIn("sequenceDiagram", text)
-        self.assertIn("Qwen2.5-VL-3B", text)
-        self.assertIn("Qwen3-8B", text)
-        self.assertIn("bge-small-en-v1.5", text)
+        from unittest.mock import patch
+        import pipeline_visualizer
+
+        orig_gen = pipeline_visualizer.generate_pipeline_flow_markdown
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_md = Path(tmpdir) / "PIPELINE_FLOW.md"
+            with patch.object(
+                pipeline_visualizer,
+                "generate_pipeline_flow_markdown",
+                side_effect=lambda: orig_gen(output_path=tmp_md),
+            ):
+                out_path = run_visualizer()
+            self.assertTrue(out_path.exists())
+            text = out_path.read_text(encoding="utf-8")
+            self.assertIn("```mermaid", text)
+            self.assertIn("flowchart TD", text)
+            self.assertIn("sequenceDiagram", text)
+            self.assertIn("Qwen2.5-VL-3B", text)
+            self.assertIn("Qwen3-8B", text)
+            self.assertIn("bge-small-en-v1.5", text)
 
     def test_07_stage1_four_tier_image_filter(self) -> None:
         """Verify 4-tier CPU PDF image filter: dHash, Haar face, blank/chart guard, and burst dedup."""
@@ -283,6 +302,126 @@ class TestFlameInFreefallPipeline(unittest.TestCase):
         kept_ids = [int(c["img_idx"]) for c in kept]
         self.assertEqual(kept_ids[0], 0)
         self.assertEqual(kept_ids[-1], 5)
+
+    def test_08_stage2_vision_igpu_kv_and_rolling_checkpoint(self) -> None:
+        """Verify 640px INTER_AREA resize, -c 2048, KV cache release payload, and rolling 5-image resume."""
+        import base64
+        import io
+        import json
+        from contextlib import redirect_stdout
+        from unittest.mock import MagicMock, patch
+
+        import cv2
+
+        self.assertEqual(VLM_CTX_SIZE, 2048)
+        self.assertEqual(VLM_MAX_IMAGE_DIM, 640)
+        self.assertEqual(VLM_MAX_TOKENS, 200)
+        self.assertAlmostEqual(VLM_TEMPERATURE, 0.1, places=4)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            large_img_path = tmp_path / "chart_large.png"
+            large_img = np.full((800, 1280, 3), 240, dtype=np.uint8)
+            cv2.line(large_img, (40, 700), (1200, 100), (20, 20, 200), 3)
+            cv2.imwrite(str(large_img_path), large_img)
+
+            uri = LlamaServerManager.encode_image_base64(large_img_path, max_dim=640)
+            self.assertTrue(uri.startswith("data:image/png;base64,"))
+            raw_b64 = uri.split(",", 1)[1]
+            decoded = cv2.imdecode(
+                np.frombuffer(base64.b64decode(raw_b64), dtype=np.uint8),
+                cv2.IMREAD_COLOR,
+            )
+            self.assertIsNotNone(decoded)
+            self.assertEqual(max(decoded.shape[:2]), 640)
+            self.assertEqual(decoded.shape[1], 640)
+            self.assertEqual(decoded.shape[0], 400)
+
+            mgr = LlamaServerManager(
+                model_path=config.VLM_MODEL_PATH,
+                mmproj_path=config.VLM_MMPROJ_PATH,
+                ctx_size=VLM_CTX_SIZE,
+            )
+            self.assertIn("2048", mgr.build_command())
+
+            with patch("llm_client.requests.post") as mock_post:
+                mock_resp = MagicMock()
+                mock_resp.json.return_value = {
+                    "choices": [{"message": {"content": "X-axis: Time (s), Y-axis: Radius (mm)."}}]
+                }
+                mock_post.return_value = mock_resp
+                out_text = mgr.analyze_image(
+                    image_path=large_img_path,
+                    system_prompt="sys",
+                    user_prompt="usr",
+                )
+                self.assertIn("X-axis", out_text)
+                sent_payload = mock_post.call_args.kwargs["json"]
+                self.assertIs(sent_payload["cache_prompt"], False)
+                self.assertEqual(sent_payload["max_tokens"], 200)
+                self.assertAlmostEqual(sent_payload["temperature"], 0.1, places=4)
+
+            assets = [
+                VisualAsset(
+                    experiment_id="FLEX_01",
+                    source_file="flex.pdf",
+                    page_or_sec=f"page_{i}",
+                    asset_type="pdf_image",
+                    image_path=str(tmp_path / f"img_{i}.png"),
+                    width=220,
+                    height=220,
+                )
+                for i in range(1, 8)
+            ]
+            for a in assets:
+                cv2.imwrite(a.image_path, np.zeros((220, 220, 3), dtype=np.uint8))
+
+            bundle = ExperimentIngestBundle(
+                experiment_id="FLEX_01",
+                text_blocks=[],
+                visual_assets=assets,
+            )
+            ckpt_file = tmp_path / "stage2_test_ckpt.json"
+
+            # Pre-populate 2 items to verify safe resume skips them and flushes at +5
+            initial_two = [
+                VisualDescription(
+                    experiment_id=a.experiment_id,
+                    source_file=a.source_file,
+                    page_or_sec=a.page_or_sec,
+                    asset_type=a.asset_type,
+                    image_path=a.image_path,
+                    technical_description="Pre-existing checkpoint entry.",
+                )
+                for a in assets[:2]
+            ]
+            ckpt_file.write_text(
+                json.dumps([d.model_dump() for d in initial_two]), encoding="utf-8"
+            )
+
+            with (
+                patch.object(LlamaServerManager, "start"),
+                patch.object(LlamaServerManager, "stop"),
+                patch.object(
+                    LlamaServerManager,
+                    "analyze_image",
+                    return_value="Spherical flame plot.",
+                ) as mock_analyze,
+            ):
+                buf = io.StringIO()
+                with redirect_stdout(buf):
+                    results = run_stage2_vision(
+                        bundles=[bundle],
+                        checkpoint_path=ckpt_file,
+                        force=False,
+                    )
+                console_out = buf.getvalue()
+                self.assertEqual(len(results), 7)
+                self.assertEqual(mock_analyze.call_count, 5)
+                self.assertIn("[Stage 2] FLEX_01: 3/7 (42.9%)", console_out)
+                self.assertIn("[Stage 2] FLEX_01: 7/7 (100.0%)", console_out)
+                saved_on_disk = json.loads(ckpt_file.read_text(encoding="utf-8"))
+                self.assertEqual(len(saved_on_disk), 7)
 
 
 if __name__ == "__main__":
