@@ -37,6 +37,19 @@ NORMAL_G_KEYWORDS: tuple[str, ...] = (
     "buoyancy-driven",
 )
 
+PARTIAL_G_KEYWORDS: tuple[str, ...] = (
+    "partial-g",
+    "partial gravity",
+    "lunar gravity",
+    "martian gravity",
+    "e-field",
+    "electric field",
+    "mimicked",
+)
+
+HW_TAG_KEYWORDS: tuple[str, ...] = ("CIR", "MDCA", "MSG", "ACME", "SPICE", "FOMA", "BASS", "SOFIE")
+SENSOR_TAG_KEYWORDS: tuple[str, ...] = ("LLUV", "BACKLIT", "SAME", "DAFT", "THERMOCOUPLE", "RADIOMETER")
+
 
 def _contains_any_keyword(text: str, keywords: tuple[str, ...]) -> bool:
     """Return True if any keyword or phrase appears with word boundaries in text."""
@@ -44,6 +57,36 @@ def _contains_any_keyword(text: str, keywords: tuple[str, ...]) -> bool:
         if re.search(rf"\b{re.escape(kw)}\b", text, flags=re.IGNORECASE):
             return True
     return False
+
+
+def tag_btc_ingest_metadata(text: str) -> str:
+    """Prepend [REGIME: ...], [HW_TAG: ...], and [SENSOR_TAG: ...] metadata tags to text."""
+    stripped = text.strip()
+    if stripped.startswith("[REGIME:"):
+        return stripped
+
+    has_micro_g = _contains_any_keyword(stripped, MICRO_G_KEYWORDS)
+    has_partial_g = _contains_any_keyword(stripped, PARTIAL_G_KEYWORDS)
+    has_normal_g = _contains_any_keyword(stripped, NORMAL_G_KEYWORDS)
+
+    if has_partial_g:
+        regime = "Partial_g_Mimicked"
+    elif has_normal_g and not has_micro_g:
+        regime = "1g_Normal_Baseline"
+    else:
+        regime = "0g_Microgravity"
+
+    matched_hw = [
+        hw for hw in HW_TAG_KEYWORDS if re.search(rf"\b{re.escape(hw)}\b", stripped, re.IGNORECASE)
+    ]
+    hw_str = "/".join(matched_hw) if matched_hw else "CIR/MDCA/MSG/ACME/SPICE"
+
+    matched_sensors = [
+        sn for sn in SENSOR_TAG_KEYWORDS if re.search(rf"\b{re.escape(sn)}\b", stripped, re.IGNORECASE)
+    ]
+    sensor_str = "/".join(matched_sensors) if matched_sensors else "LLUV/SAME/DAFT"
+
+    return f"[REGIME: {regime}] [HW_TAG: {hw_str}] [SENSOR_TAG: {sensor_str}] {stripped}"
 
 
 def filter_microgravity_context(text: str) -> bool:
@@ -308,27 +351,16 @@ def process_pdf_file(
             page = doc[page_idx]
             loc = f"page_{page_idx + 1}"
             raw_text = page.get_text("text").strip()
-            page_is_valid_context = True
             if raw_text:
-                paragraphs = [
-                    p.strip()
-                    for p in re.split(r"\n\s*\n", raw_text)
-                    if p.strip() and filter_microgravity_context(p)
-                ]
-                page_is_valid_context = filter_microgravity_context(raw_text)
-                if paragraphs and page_is_valid_context:
-                    cleaned = re.sub(r"\s+", " ", " ".join(paragraphs))
-                    text_blocks.append(
-                        TextBlock(
-                            experiment_id=experiment_id,
-                            source_file=pdf_path.name,
-                            page_or_sec=loc,
-                            text=cleaned,
-                        )
+                cleaned = tag_btc_ingest_metadata(re.sub(r"\s+", " ", raw_text))
+                text_blocks.append(
+                    TextBlock(
+                        experiment_id=experiment_id,
+                        source_file=pdf_path.name,
+                        page_or_sec=loc,
+                        text=cleaned,
                     )
-
-            if not page_is_valid_context:
-                continue
+                )
 
             image_list = page.get_images(full=True)
             page_candidates: list[dict[str, object]] = []
@@ -528,7 +560,7 @@ def _summarize_dataframe_sheet(
         if row_strs:
             parts.append("Rows: " + " | ".join(row_strs) + ".")
 
-    return " ".join(parts)
+    return tag_btc_ingest_metadata(" ".join(parts))
 
 
 def process_tabular_file(file_path: Path, experiment_id: str) -> list[TextBlock]:
@@ -606,11 +638,54 @@ def run_stage1_ingest(
     checkpoint_path: Path = config.STAGE1_CHECKPOINT,
     force: bool = False,
 ) -> list[ExperimentIngestBundle]:
-    """Scan 03_Datasets_NASA, ingest PDFs, videos, tables, and queries, and save checkpoint."""
+    """Scan 03_Datasets_NASA, ingest PDFs, videos, tables, and queries, with Smart Checkpoint Patch."""
     config.ensure_artifact_dirs()
     if checkpoint_path.exists() and not force:
         raw_data = json.loads(checkpoint_path.read_text(encoding="utf-8"))
-        return [ExperimentIngestBundle.model_validate(item) for item in raw_data]
+        cached_bundles = [ExperimentIngestBundle.model_validate(item) for item in raw_data]
+        needs_patch = any(
+            not b.text.startswith("[REGIME:")
+            for bundle in cached_bundles
+            for b in bundle.text_blocks
+        )
+        if not needs_patch and cached_bundles:
+            return cached_bundles
+
+        bundles_by_id = {b.experiment_id: b for b in cached_bundles}
+        for bundle in cached_bundles:
+            for block in bundle.text_blocks:
+                block.text = tag_btc_ingest_metadata(block.text)
+
+        if dataset_dir.exists():
+            tabular_files: list[Path] = []
+            for ext in config.TABULAR_EXTENSIONS:
+                tabular_files.extend(sorted(dataset_dir.rglob(f"*{ext}")))
+            for tab_path in tabular_files:
+                exp_id = infer_experiment_id(tab_path)
+                bundle = bundles_by_id.setdefault(
+                    exp_id, ExperimentIngestBundle(experiment_id=exp_id)
+                )
+                existing_keys = {(tb.source_file, tb.page_or_sec) for tb in bundle.text_blocks}
+                for tb in process_tabular_file(tab_path, exp_id):
+                    if (tb.source_file, tb.page_or_sec) not in existing_keys:
+                        bundle.text_blocks.append(tb)
+
+            query_files: list[Path] = []
+            for q_name in config.QUERY_FILENAMES:
+                query_files.extend(sorted(dataset_dir.rglob(q_name)))
+            for q_path in query_files:
+                for q_str in extract_user_queries(q_path):
+                    for bundle in bundles_by_id.values():
+                        if q_str not in bundle.user_queries:
+                            bundle.user_queries.append(q_str)
+
+        patched_list = [bundles_by_id[k] for k in sorted(bundles_by_id.keys())]
+        payload = json.dumps([b.model_dump() for b in patched_list], indent=2, ensure_ascii=False)
+        try:
+            checkpoint_path.write_text(payload, encoding="utf-8")
+        except PermissionError:
+            pass
+        return patched_list
 
     bundles_map: dict[str, ExperimentIngestBundle] = {}
     dhashes_by_exp: dict[str, list[int]] = {}

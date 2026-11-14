@@ -54,9 +54,10 @@ from stage3_index import (
     LocalBGEEmbedder,
     build_multimodal_chunks,
     format_citation_prefix,
+    search_weighted,
     split_words_with_overlap,
 )
-from stage5_export import export_to_excel, export_to_markdown
+from stage5_export import build_summary_tables, export_to_excel, export_to_markdown
 
 
 class TestFlameInFreefallPipeline(unittest.TestCase):
@@ -203,10 +204,14 @@ class TestFlameInFreefallPipeline(unittest.TestCase):
         self.assertGreater(ranked[0].final_weighted_score, ranked[1].final_weighted_score)
 
         with tempfile.TemporaryDirectory() as tmpdir:
+            from openpyxl import load_workbook
+
             tmp_path = Path(tmpdir)
             xlsx_file = export_to_excel(ranked, excel_path=tmp_path / "test_rank.xlsx")
             md_file = export_to_markdown(ranked, report_path=tmp_path / "test_report.md")
             self.assertTrue(xlsx_file.exists() and xlsx_file.stat().st_size > 0)
+            wb = load_workbook(str(xlsx_file))
+            self.assertIn("BTC_Technical_Attributes", wb.sheetnames)
             self.assertTrue(md_file.exists() and "EXP_HIGH" in md_file.read_text(encoding="utf-8"))
 
     def test_05_llm_client_command_and_psutil_cleanup(self) -> None:
@@ -485,6 +490,30 @@ class TestFlameInFreefallPipeline(unittest.TestCase):
                 self.assertIn("[Stage 2] FLEX_01: 7/7 (100.0%)", console_out)
                 saved_on_disk = json.loads(ckpt_file.read_text(encoding="utf-8"))
                 self.assertEqual(len(saved_on_disk), 7)
+
+    def test_09_weighted_retrieval_and_summary_tables(self) -> None:
+        """Verify Stage 3 search_weighted and Stage 5 build_summary_tables SI DataFrames."""
+        weights = {
+            "w_semantic": 0.5,
+            "w_env_target": "Lunar_Base",
+            "w_env_weight": 0.35,
+            "w_quantitative": 0.3,
+            "w_pillar": "Prevention",
+        }
+        results = search_weighted(
+            "Áp suất và tốc độ gió của các thí nghiệm cháy vật liệu rắn trên Mặt Trăng",
+            weights=weights,
+            top_k=5,
+        )
+        self.assertGreater(len(results), 0)
+        self.assertGreaterEqual(results[0]["weighted_score"], results[-1]["weighted_score"])
+
+        df_metrics, df_evidence = build_summary_tables(results)
+        self.assertFalse(df_metrics.empty)
+        self.assertFalse(df_evidence.empty)
+        self.assertIn("Pressure_kPa", df_metrics.columns)
+        self.assertIn("Max_Airflow_mm_s", df_metrics.columns)
+        self.assertIn("Final_Weighted_Score", df_evidence.columns)
 
 
 if __name__ == "__main__":

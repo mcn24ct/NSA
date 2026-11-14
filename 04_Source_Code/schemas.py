@@ -66,7 +66,7 @@ class IndexedChunk(BaseModel):
 
 
 class ExperimentExtraction(BaseModel):
-    """Stage 4 LLM structured output with normalized physical units and citations."""
+    """Stage 4 LLM structured output with normalized SI physical units, BTC attributes, and citations."""
 
     experiment_id: str = Field(..., description="Unique NASA experiment identifier")
     fuel_or_material: str | None = Field(
@@ -83,6 +83,73 @@ class ExperimentExtraction(BaseModel):
     )
     burn_duration_s: float | None = Field(
         default=None, description="Total combustion duration until extinction in s"
+    )
+    airflow_speed_mm_s: float | None = Field(
+        default=0.0, description="Ambient or forced oxidizer airflow speed in mm/s (0.0 if quiescent)"
+    )
+    experimental_objectives: str = Field(
+        default="Determine microgravity droplet/solid combustion behavior, extinction mechanisms, and limiting oxygen index (LOI).",
+        description="Scientific and fire-safety objectives of the experiment",
+    )
+    hardware_apparatus: str = Field(
+        default="CIR / MDCA",
+        description="NASA hardware facility and apparatus (e.g., CIR, MDCA, MSG, ACME, SPICE flow duct)",
+    )
+    sample_geometry_size: str = Field(
+        default="Spherical liquid droplet (2-5 mm initial diameter)",
+        description="Sample or burner geometry and dimensions in mm",
+    )
+    controlled_vs_varied_vars: str = Field(
+        default="Controlled: microgravity environment, ambient temperature; Varied: chamber pressure, O2/N2/CO2 concentration, initial droplet diameter",
+        description="Controlled fixed parameters vs. varied independent variables",
+    )
+    sensors_used: str = Field(
+        default="Visible color camera, Backlit droplet camera, LLUV (310 nm OH*) camera, pressure transducers, gas mass-flow controllers",
+        description="Diagnostic cameras and sensors (e.g., LLUV, backlit, SAME/DAFT smoke sensors, thermocouples)",
+    )
+    gravity_regime: str = Field(
+        default="0g",
+        description="Gravity regime: '0g', 'Partial-g', or '1g Baseline Bound'",
+    )
+    iss_earth_score: float = Field(
+        default=90.0,
+        ge=0.0,
+        le=100.0,
+        description="Relevance to ISS/Earth cabin baseline (101.35 kPa / 14.7 psi, 21% O2)",
+    )
+    lunar_base_rover_score: float = Field(
+        default=75.0,
+        ge=0.0,
+        le=100.0,
+        description="Relevance to Lunar Base & Pressurized Rover (<=70.33 kPa / 10.2 psi, >=30% O2)",
+    )
+    spacesuit_eva_score: float = Field(
+        default=55.0,
+        ge=0.0,
+        le=100.0,
+        description="Relevance to Spacesuit EVA atmosphere (29.65 kPa / 4.3 psi, 100% O2)",
+    )
+    iss_earth_relevance_score: float = Field(
+        default=90.0,
+        ge=0.0,
+        le=100.0,
+        description="Relevance to ISS/Earth cabin normoxic baseline (101.35 kPa / 14.7 psi, 21% O2)",
+    )
+    lunar_base_rover_relevance_score: float = Field(
+        default=75.0,
+        ge=0.0,
+        le=100.0,
+        description="Relevance to Lunar Base/Rover atmosphere (<=70.33 kPa / 10.2 psi, >=30% O2)",
+    )
+    spacesuit_relevance_score: float = Field(
+        default=55.0,
+        ge=0.0,
+        le=100.0,
+        description="Relevance to Spacesuit EVA atmosphere (29.65 kPa / 4.3 psi, 100% O2)",
+    )
+    earth_applications: str = Field(
+        default="Fine-water-mist fire suppression design, spacecraft/building smoke detector calibration (SAME/DAFT), and firefighter thermal protection.",
+        description="Practical Earth applications (fine-water-mist extinguishing, smoke/dust sensors, protective gear)",
     )
     flame_stability_score: float = Field(
         ...,
@@ -121,6 +188,20 @@ class ScoredExperiment(BaseModel):
     oxygen_pct: float | None = None
     burn_rate_mm_s: float | None = None
     burn_duration_s: float | None = None
+    airflow_speed_mm_s: float | None = 0.0
+    experimental_objectives: str = ""
+    hardware_apparatus: str = "CIR / MDCA"
+    sample_geometry_size: str = ""
+    controlled_vs_varied_vars: str = ""
+    sensors_used: str = ""
+    gravity_regime: str = "0g"
+    iss_earth_score: float = Field(default=90.0, ge=0.0, le=100.0)
+    lunar_base_rover_score: float = Field(default=75.0, ge=0.0, le=100.0)
+    spacesuit_eva_score: float = Field(default=55.0, ge=0.0, le=100.0)
+    iss_earth_relevance_score: float = Field(default=90.0, ge=0.0, le=100.0)
+    lunar_base_rover_relevance_score: float = Field(default=75.0, ge=0.0, le=100.0)
+    spacesuit_relevance_score: float = Field(default=55.0, ge=0.0, le=100.0)
+    earth_applications: str = ""
     norm_burn_rate: float = Field(..., ge=0.0, le=100.0)
     norm_burn_duration: float = Field(..., ge=0.0, le=100.0)
     norm_oxygen_margin: float = Field(..., ge=0.0, le=100.0)

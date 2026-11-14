@@ -68,6 +68,46 @@ def compute_confidence_penalty(
     return round(min(MAX_PENALTY_CAP, penalty), 2), missing_fields
 
 
+def compute_environment_relevance_scores(
+    extraction: ExperimentExtraction,
+) -> tuple[float, float, float]:
+    """Compute compatibility scores (0-100) for ISS/Earth, Lunar Base/Rover, and Spacesuit (EVA)."""
+    p_kpa = extraction.pressure_kpa if extraction.pressure_kpa is not None else 101.325
+    o2_pct = extraction.oxygen_pct if extraction.oxygen_pct is not None else 21.0
+    regime = (extraction.gravity_regime or "0g").lower()
+    bounding_bonus = 5.0 if ("0g" in regime or "partial" in regime or "1g" in regime) else 0.0
+    text_blob = f"{extraction.experimental_objectives} {extraction.key_findings_summary}".lower()
+    high_o2_bonus = 8.0 if any(k in text_blob for k in ("loi", "cfi", "bre", "dilution", "extinction")) else 0.0
+
+    iss_p_diff = abs(p_kpa - 101.35) / 101.35
+    iss_o2_diff = abs(o2_pct - 21.0) / 21.0
+    iss_phys = max(0.0, 100.0 * (1.0 - (0.5 * iss_p_diff + 0.5 * iss_o2_diff)))
+    iss_score = round(
+        min(100.0, 0.6 * iss_phys + 0.4 * extraction.iss_earth_score + bounding_bonus),
+        2,
+    )
+
+    lunar_p_gap = max(0.0, p_kpa - 70.33) / 70.33
+    lunar_o2_gap = max(0.0, 30.0 - o2_pct) / 30.0
+    lunar_phys = max(0.0, 100.0 * (1.0 - (0.5 * lunar_p_gap + 0.5 * lunar_o2_gap)))
+    lunar_score = round(
+        min(
+            100.0,
+            0.5 * lunar_phys + 0.5 * extraction.lunar_base_rover_score + bounding_bonus + high_o2_bonus,
+        ),
+        2,
+    )
+
+    suit_p_diff = abs(p_kpa - 29.65) / 101.35
+    suit_o2_diff = abs(100.0 - o2_pct) / 100.0
+    suit_phys = max(0.0, 100.0 * (1.0 - (0.45 * suit_p_diff + 0.55 * suit_o2_diff)))
+    suit_score = round(
+        min(100.0, 0.5 * suit_phys + 0.5 * extraction.spacesuit_eva_score + bounding_bonus),
+        2,
+    )
+    return iss_score, lunar_score, suit_score
+
+
 def score_and_rank_experiments(
     extractions: list[ExperimentExtraction],
 ) -> list[ScoredExperiment]:
@@ -84,6 +124,7 @@ def score_and_rank_experiments(
         nbr = norm_burn_rates[idx]
         nbd = norm_burn_durations[idx]
         nox = norm_oxygen_margins[idx]
+        iss_rel, lunar_rel, suit_rel = compute_environment_relevance_scores(ext)
 
         raw_score = (
             ext.flame_stability_score * WEIGHTS["flame_stability_score"]
@@ -106,6 +147,20 @@ def score_and_rank_experiments(
                 oxygen_pct=ext.oxygen_pct,
                 burn_rate_mm_s=ext.burn_rate_mm_s,
                 burn_duration_s=ext.burn_duration_s,
+                airflow_speed_mm_s=ext.airflow_speed_mm_s,
+                experimental_objectives=ext.experimental_objectives,
+                hardware_apparatus=ext.hardware_apparatus,
+                sample_geometry_size=ext.sample_geometry_size,
+                controlled_vs_varied_vars=ext.controlled_vs_varied_vars,
+                sensors_used=ext.sensors_used,
+                gravity_regime=ext.gravity_regime,
+                iss_earth_score=iss_rel,
+                lunar_base_rover_score=lunar_rel,
+                spacesuit_eva_score=suit_rel,
+                iss_earth_relevance_score=iss_rel,
+                lunar_base_rover_relevance_score=lunar_rel,
+                spacesuit_relevance_score=suit_rel,
+                earth_applications=ext.earth_applications,
                 norm_burn_rate=nbr,
                 norm_burn_duration=nbd,
                 norm_oxygen_margin=nox,

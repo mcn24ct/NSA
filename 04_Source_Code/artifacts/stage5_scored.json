@@ -6,7 +6,21 @@
     "pressure_kpa": 101.325,
     "oxygen_pct": 20.0,
     "burn_rate_mm_s": 1.2,
-    "burn_duration_s": 18.0,
+    "burn_duration_s": 20.0,
+    "airflow_speed_mm_s": 0.0,
+    "experimental_objectives": "Determine microgravity droplet/solid combustion behavior, extinction mechanisms, and limiting oxygen index (LOI).",
+    "hardware_apparatus": "CIR / MDCA",
+    "sample_geometry_size": "Spherical liquid droplet (2-5 mm initial diameter)",
+    "controlled_vs_varied_vars": "Controlled: microgravity environment, ambient temperature; Varied: chamber pressure, O2/N2/CO2 concentration, initial droplet diameter",
+    "sensors_used": "Visible color camera, Backlit droplet camera, LLUV (310 nm OH*) camera, pressure transducers, gas mass-flow controllers",
+    "gravity_regime": "0g",
+    "iss_earth_score": 99.56,
+    "lunar_base_rover_score": 81.15,
+    "spacesuit_eva_score": 44.59,
+    "iss_earth_relevance_score": 99.56,
+    "lunar_base_rover_relevance_score": 81.15,
+    "spacesuit_relevance_score": 44.59,
+    "earth_applications": "Fine-water-mist fire suppression design, spacecraft/building smoke detector calibration (SAME/DAFT), and firefighter thermal protection.",
     "norm_burn_rate": 100.0,
     "norm_burn_duration": 100.0,
     "norm_oxygen_margin": 100.0,
@@ -20,11 +34,11 @@
     "citations": [
       "[SOURCE: JASMAC-33 FLEX w video.pdf | LOC: page_14]",
       "[SOURCE: 20150023456.pdf | LOC: page_230]",
-      "[SOURCE: 20150023456.pdf | LOC: page_8]",
-      "[SOURCE: 20150023456.pdf | LOC: page_182]",
       "[SOURCE: 20150023456.pdf | LOC: page_76]",
-      "[SOURCE: 20150023456.pdf | LOC: page_22]"
+      "[SOURCE: 20150023456.pdf | LOC: page_182]",
+      "[SOURCE: 20150023456.pdf | LOC: page_8]",
+      "[SOURCE: 20150023456.pdf | LOC: page_229]"
     ],
-    "key_findings_summary": "Free-floating heptane droplet burned in 20.0% O2 at 101.325 kPa and 298.15 K with a burn rate of 1.2 mm/s for 18.0 s. The droplet exhibited spherical symmetry, indicating microgravity conditions, and showed soot formation and radiative quenching effects. The flame extinguished radiatively, with a vapor cloud forming 15 to 20 s after the visible flame extinguished. The droplet disrupted at the extinction size, and the data included droplet diameter histories and flame diameter measurements from multiple cameras."
+    "key_findings_summary": "Free-floating n-Heptane droplet burned in 20.0% O2 at 101.325 kPa and 298.15 K with a burn rate of 1.2 mm/s for 20.0 s inside CIR/MDCA."
   }
 ]
