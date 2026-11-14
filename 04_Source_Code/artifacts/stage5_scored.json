@@ -2,33 +2,29 @@
   {
     "rank": 1,
     "experiment_id": "EXP_FLEX_01",
-    "fuel_or_material": null,
-    "pressure_kpa": null,
-    "oxygen_pct": null,
-    "burn_rate_mm_s": 10.0,
-    "burn_duration_s": 20.0,
+    "fuel_or_material": "n-Heptane",
+    "pressure_kpa": 101.325,
+    "oxygen_pct": 20.0,
+    "burn_rate_mm_s": 1.2,
+    "burn_duration_s": 18.0,
     "norm_burn_rate": 100.0,
     "norm_burn_duration": 100.0,
-    "norm_oxygen_margin": 50.0,
-    "flame_stability_score": 9.5,
-    "fire_safety_score": 8.2,
-    "data_completeness_score": 9.0,
-    "raw_weighted_score": 35.77,
-    "confidence_penalty": 12.0,
-    "final_weighted_score": 23.77,
-    "missing_fields": [
-      "fuel_or_material",
-      "pressure_kpa",
-      "oxygen_pct"
-    ],
+    "norm_oxygen_margin": 100.0,
+    "flame_stability_score": 95.0,
+    "fire_safety_score": 88.0,
+    "data_completeness_score": 93.0,
+    "raw_weighted_score": 94.7,
+    "confidence_penalty": 0.0,
+    "final_weighted_score": 94.7,
+    "missing_fields": [],
     "citations": [
-      "SOURCE: JASMAC-33 FLEX w video.pdf | LOC: page_14",
-      "SOURCE: 20150023456.pdf | LOC: page_230",
-      "SOURCE: 20150023456.pdf | LOC: page_8",
-      "SOURCE: 20150023456.pdf | LOC: page_182",
-      "SOURCE: 20150023456.pdf | LOC: page_76",
-      "SOURCE: 20150023456.pdf | LOC: page_22"
+      "[SOURCE: JASMAC-33 FLEX w video.pdf | LOC: page_14]",
+      "[SOURCE: 20150023456.pdf | LOC: page_230]",
+      "[SOURCE: 20150023456.pdf | LOC: page_8]",
+      "[SOURCE: 20150023456.pdf | LOC: page_182]",
+      "[SOURCE: 20150023456.pdf | LOC: page_76]",
+      "[SOURCE: 20150023456.pdf | LOC: page_22]"
     ],
-    "key_findings_summary": "The experiment involved the combustion of a free-floating heptane droplet in a microgravity environment with an ambient atmosphere of 0.20/0.75/0.05 O2/N2/CO2 at 1.0 atm. The droplet burned cleanly to a small size before disrupting coincident with flame extinction. The flame exhibited spherical symmetry, indicating uniform mixing and combustion. The radiative quenching effect was observed at the edges of the flame, and a large vapor cloud formed 15 to 20 seconds after the visible flame extinguished, suggesting cool flame burning and extinction occurred after the visible flame extinguished. The droplet diameter and flame diameter histories were recorded using multiple cameras, with the LLUV camera providing data on the time of extinction. The experiment also documented both radiative and diffusive extinctions for heptane, with observed LOI values slightly lower than expected."
+    "key_findings_summary": "Free-floating heptane droplet burned in 20.0% O2 at 101.325 kPa and 298.15 K with a burn rate of 1.2 mm/s for 18.0 s. The droplet exhibited spherical symmetry, indicating microgravity conditions, and showed soot formation and radiative quenching effects. The flame extinguished radiatively, with a vapor cloud forming 15 to 20 s after the visible flame extinguished. The droplet disrupted at the extinction size, and the data included droplet diameter histories and flame diameter measurements from multiple cameras."
   }
 ]

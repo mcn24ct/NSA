@@ -1,17 +1,86 @@
-"""Stage 1: Dataset ingestion, 4-tier CPU PDF image filtering, and video keyframe extraction."""
+"""Stage 1: Dataset ingestion, microgravity context/morphology filtering, and keyframe extraction."""
 
 import io
 import json
+import math
 import re
 from pathlib import Path
 
 import cv2
 import numpy as np
+import pandas as pd
 import pymupdf as fitz
 from PIL import Image
 
 import config
 from schemas import ExperimentIngestBundle, TextBlock, VisualAsset
+
+MICRO_G_KEYWORDS: tuple[str, ...] = (
+    "microgravity",
+    "zero-g",
+    "0-g",
+    "drop tower",
+    "parabolic flight",
+    "iss",
+    "freefall",
+    "free-floating",
+    "spherical flame",
+)
+
+NORMAL_G_KEYWORDS: tuple[str, ...] = (
+    "normal gravity",
+    "1g",
+    "1-g",
+    "terrestrial",
+    "ground test",
+    "earth gravity",
+    "buoyancy-driven",
+)
+
+
+def _contains_any_keyword(text: str, keywords: tuple[str, ...]) -> bool:
+    """Return True if any keyword or phrase appears with word boundaries in text."""
+    for kw in keywords:
+        if re.search(rf"\b{re.escape(kw)}\b", text, flags=re.IGNORECASE):
+            return True
+    return False
+
+
+def filter_microgravity_context(text: str) -> bool:
+    """Keep text/caption unless it exclusively references 1g normal-gravity conditions."""
+    if not text or not text.strip():
+        return False
+    has_micro_g = _contains_any_keyword(text, MICRO_G_KEYWORDS)
+    has_normal_g = _contains_any_keyword(text, NORMAL_G_KEYWORDS)
+    if has_normal_g and not has_micro_g:
+        return False
+    return True
+
+
+def is_buoyant_1g_flame_image(gray_img: np.ndarray) -> bool:
+    """Detect vertically elongated buoyant 1g flames on dark backgrounds via contour circularity."""
+    gray = cv2.cvtColor(gray_img, cv2.COLOR_BGR2GRAY) if gray_img.ndim == 3 else gray_img
+    if gray.size == 0 or float(np.mean(gray)) >= 60.0:
+        return False
+
+    _, thresh = cv2.threshold(gray, 60, 255, cv2.THRESH_BINARY)
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return False
+
+    largest = max(contours, key=cv2.contourArea)
+    area = float(cv2.contourArea(largest))
+    perimeter = float(cv2.arcLength(largest, True))
+    if area <= 0.0 or perimeter <= 0.0:
+        return False
+
+    _, _, width, height = cv2.boundingRect(largest)
+    if width <= 0:
+        return False
+
+    height_width_ratio = height / float(width)
+    circularity = (4.0 * math.pi * area) / (perimeter * perimeter)
+    return height_width_ratio > 1.8 and circularity < 0.55
 
 
 class _FallbackHaarFaceClassifier:
@@ -239,16 +308,27 @@ def process_pdf_file(
             page = doc[page_idx]
             loc = f"page_{page_idx + 1}"
             raw_text = page.get_text("text").strip()
+            page_is_valid_context = True
             if raw_text:
-                cleaned = re.sub(r"\s+", " ", raw_text)
-                text_blocks.append(
-                    TextBlock(
-                        experiment_id=experiment_id,
-                        source_file=pdf_path.name,
-                        page_or_sec=loc,
-                        text=cleaned,
+                paragraphs = [
+                    p.strip()
+                    for p in re.split(r"\n\s*\n", raw_text)
+                    if p.strip() and filter_microgravity_context(p)
+                ]
+                page_is_valid_context = filter_microgravity_context(raw_text)
+                if paragraphs and page_is_valid_context:
+                    cleaned = re.sub(r"\s+", " ", " ".join(paragraphs))
+                    text_blocks.append(
+                        TextBlock(
+                            experiment_id=experiment_id,
+                            source_file=pdf_path.name,
+                            page_or_sec=loc,
+                            text=cleaned,
+                        )
                     )
-                )
+
+            if not page_is_valid_context:
+                continue
 
             image_list = page.get_images(full=True)
             page_candidates: list[dict[str, object]] = []
@@ -282,6 +362,10 @@ def process_pdf_file(
 
                 # Tier 3: Safe Aspect Ratio & Edge-Aware Blank Filter
                 if is_banner_or_blank(gray_img, width, height):
+                    continue
+
+                # Tier 3b: Buoyant 1g Elongated Flame Morphology Filter
+                if is_buoyant_1g_flame_image(gray_img):
                     continue
 
                 page_candidates.append(
@@ -407,12 +491,122 @@ def extract_video_keyframes(
     return assets
 
 
+def _summarize_dataframe_sheet(
+    df: pd.DataFrame, file_name: str, sheet_name: str
+) -> str:
+    """Format DataFrame columns, numeric stats, and <=30 row contents with citation tag."""
+    loc_tag = f"sheet_{sheet_name}"
+    cols = [str(c) for c in df.columns]
+    parts: list[str] = [
+        f"[SOURCE: {file_name} | LOC: {loc_tag}] Columns: {', '.join(cols)}."
+    ]
+
+    num_df = df.select_dtypes(include=[np.number])
+    if not num_df.empty:
+        stat_items: list[str] = []
+        for col in num_df.columns:
+            series = num_df[col].dropna()
+            if series.empty:
+                continue
+            cnt = int(series.count())
+            mean_v = float(series.mean())
+            min_v = float(series.min())
+            max_v = float(series.max())
+            std_v = float(series.std(ddof=1)) if cnt > 1 else 0.0
+            stat_items.append(
+                f"{col}(count={cnt}, mean={mean_v:.4g}, min={min_v:.4g}, max={max_v:.4g}, std={std_v:.4g})"
+            )
+        if stat_items:
+            parts.append("Numeric Statistics: " + "; ".join(stat_items) + ".")
+
+    if len(df) <= 30 and not df.empty:
+        row_strs: list[str] = []
+        for row_idx, (_, row) in enumerate(df.iterrows(), start=1):
+            kv = ", ".join(f"{k}={row[k]}" for k in df.columns if pd.notna(row[k]))
+            if kv:
+                row_strs.append(f"Row {row_idx}: {kv}")
+        if row_strs:
+            parts.append("Rows: " + " | ".join(row_strs) + ".")
+
+    return " ".join(parts)
+
+
+def process_tabular_file(file_path: Path, experiment_id: str) -> list[TextBlock]:
+    """Read CSV or Excel (.xlsx/.xls) sensor/experiment tables into cited TextBlocks."""
+    suffix = file_path.suffix.lower()
+    blocks: list[TextBlock] = []
+
+    if suffix == ".csv":
+        df: pd.DataFrame | None = None
+        for enc in ("utf-8", "latin1"):
+            try:
+                df = pd.read_csv(file_path, encoding=enc)
+                break
+            except UnicodeDecodeError:
+                continue
+        if df is not None and not df.empty:
+            sheet_name = "csv"
+            text = _summarize_dataframe_sheet(df, file_path.name, sheet_name)
+            blocks.append(
+                TextBlock(
+                    experiment_id=experiment_id,
+                    source_file=file_path.name,
+                    page_or_sec=f"sheet_{sheet_name}",
+                    text=text,
+                )
+            )
+    elif suffix in {".xlsx", ".xls"}:
+        with pd.ExcelFile(file_path) as xls:
+            for sheet_name in xls.sheet_names:
+                df_sheet = pd.read_excel(xls, sheet_name=sheet_name)
+                if df_sheet.empty:
+                    continue
+                text = _summarize_dataframe_sheet(
+                    df_sheet, file_path.name, str(sheet_name)
+                )
+                blocks.append(
+                    TextBlock(
+                        experiment_id=experiment_id,
+                        source_file=file_path.name,
+                        page_or_sec=f"sheet_{sheet_name}",
+                        text=text,
+                    )
+                )
+    return blocks
+
+
+def extract_user_queries(file_path: Path) -> list[str]:
+    """Extract user query prompts from chat_queries.json or query.txt without indexing into FAISS."""
+    if not file_path.exists():
+        return []
+    name_lower = file_path.name.lower()
+    queries: list[str] = []
+
+    if name_lower == "chat_queries.json":
+        raw = json.loads(file_path.read_text(encoding="utf-8"))
+        messages = raw.get("messages", []) if isinstance(raw, dict) else raw
+        if isinstance(messages, list):
+            for item in messages:
+                if isinstance(item, dict):
+                    content = str(item.get("content") or "").strip()
+                    if content:
+                        queries.append(content)
+                elif isinstance(item, str) and item.strip():
+                    queries.append(item.strip())
+    elif name_lower == "query.txt":
+        for line in file_path.read_text(encoding="utf-8").splitlines():
+            cleaned = line.strip()
+            if cleaned:
+                queries.append(cleaned)
+    return queries
+
+
 def run_stage1_ingest(
     dataset_dir: Path = config.DATASETS_DIR,
     checkpoint_path: Path = config.STAGE1_CHECKPOINT,
     force: bool = False,
 ) -> list[ExperimentIngestBundle]:
-    """Scan 03_Datasets_NASA, ingest PDFs and videos by experiment_id, and save checkpoint."""
+    """Scan 03_Datasets_NASA, ingest PDFs, videos, tables, and queries, and save checkpoint."""
     config.ensure_artifact_dirs()
     if checkpoint_path.exists() and not force:
         raw_data = json.loads(checkpoint_path.read_text(encoding="utf-8"))
@@ -426,6 +620,12 @@ def run_stage1_ingest(
         video_files: list[Path] = []
         for ext in ("*.mp4", "*.avi", "*.mov", "*.mkv"):
             video_files.extend(sorted(dataset_dir.rglob(ext)))
+        tabular_files: list[Path] = []
+        for ext in config.TABULAR_EXTENSIONS:
+            tabular_files.extend(sorted(dataset_dir.rglob(f"*{ext}")))
+        query_files: list[Path] = []
+        for q_name in config.QUERY_FILENAMES:
+            query_files.extend(sorted(dataset_dir.rglob(q_name)))
 
         for pdf_path in pdf_files:
             exp_id = infer_experiment_id(pdf_path)
@@ -444,6 +644,30 @@ def run_stage1_ingest(
             )
             keyframes = extract_video_keyframes(video_path, exp_id)
             bundle.visual_assets.extend(keyframes)
+
+        for tab_path in tabular_files:
+            exp_id = infer_experiment_id(tab_path)
+            bundle = bundles_map.setdefault(
+                exp_id, ExperimentIngestBundle(experiment_id=exp_id)
+            )
+            tab_blocks = process_tabular_file(tab_path, exp_id)
+            bundle.text_blocks.extend(tab_blocks)
+
+        global_queries: list[str] = []
+        for q_path in query_files:
+            parsed_queries = extract_user_queries(q_path)
+            if q_path.parent.resolve() == dataset_dir.resolve():
+                global_queries.extend(parsed_queries)
+            else:
+                exp_id = infer_experiment_id(q_path)
+                bundle = bundles_map.setdefault(
+                    exp_id, ExperimentIngestBundle(experiment_id=exp_id)
+                )
+                bundle.user_queries.extend(parsed_queries)
+
+        if global_queries:
+            for bundle in bundles_map.values():
+                bundle.user_queries.extend(global_queries)
 
     bundles = [bundles_map[k] for k in sorted(bundles_map.keys())]
     checkpoint_path.write_text(

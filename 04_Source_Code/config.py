@@ -47,6 +47,8 @@ MIN_IMAGE_HEIGHT: Final[int] = 200
 MAX_IMAGE_DIMENSION: Final[int] = 1024
 MIN_VIDEO_KEYFRAMES: Final[int] = 5
 MAX_VIDEO_KEYFRAMES: Final[int] = 10
+TABULAR_EXTENSIONS: Final[tuple[str, ...]] = (".csv", ".xlsx", ".xls")
+QUERY_FILENAMES: Final[tuple[str, ...]] = ("chat_queries.json", "query.txt")
 
 STAGE1_CHECKPOINT: Final[Path] = ARTIFACTS_DIR / "stage1_ingest.json"
 STAGE2_CHECKPOINT: Final[Path] = ARTIFACTS_DIR / "stage2_vision.json"

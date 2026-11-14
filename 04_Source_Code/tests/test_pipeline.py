@@ -38,11 +38,17 @@ from scoring_engine import (
     score_and_rank_experiments,
 )
 from stage1_ingest import (
+    MICRO_G_KEYWORDS,
+    NORMAL_G_KEYWORDS,
     compute_dhash,
     deduplicate_same_page_burst,
+    extract_user_queries,
+    filter_microgravity_context,
     hamming_distance,
     has_human_face,
     is_banner_or_blank,
+    is_buoyant_1g_flame_image,
+    process_tabular_file,
 )
 from stage3_index import (
     LocalBGEEmbedder,
@@ -302,6 +308,63 @@ class TestFlameInFreefallPipeline(unittest.TestCase):
         kept_ids = [int(c["img_idx"]) for c in kept]
         self.assertEqual(kept_ids[0], 0)
         self.assertEqual(kept_ids[-1], 5)
+
+        # Tier 5: Microgravity vs. 1g Context & OpenCV Flame Morphology Filter
+        self.assertIn("microgravity", MICRO_G_KEYWORDS)
+        self.assertIn("normal gravity", NORMAL_G_KEYWORDS)
+        self.assertFalse(
+            filter_microgravity_context("Ground test under 1g normal gravity shows buoyancy-driven plume.")
+        )
+        self.assertTrue(
+            filter_microgravity_context("Comparison of 1g normal gravity and microgravity ISS spherical flame.")
+        )
+        self.assertTrue(
+            filter_microgravity_context("Free-floating droplet in drop tower zero-g environment.")
+        )
+
+        buoyant_1g = np.zeros((300, 300), dtype=np.uint8)
+        cv2.ellipse(buoyant_1g, (150, 150), (18, 95), 0, 0, 360, 230, -1)
+        self.assertTrue(is_buoyant_1g_flame_image(buoyant_1g))
+
+        spherical_0g = np.zeros((300, 300), dtype=np.uint8)
+        cv2.circle(spherical_0g, (150, 150), 50, 230, -1)
+        self.assertFalse(is_buoyant_1g_flame_image(spherical_0g))
+        self.assertFalse(is_buoyant_1g_flame_image(thin_chart))
+
+        # Tier 6: Tabular (.csv/.xlsx) Reader & User Query Separation
+        import json
+        import pandas as pd
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            csv_path = tmp_path / "telemetry.csv"
+            df_sample = pd.DataFrame(
+                {"pressure_kpa": [101.0, 102.0, 103.0], "burn_rate_mm_s": [1.1, 1.3, 1.5]}
+            )
+            df_sample.to_csv(csv_path, index=False, encoding="latin1")
+            csv_blocks = process_tabular_file(csv_path, "EXP_FLEX_01")
+            self.assertEqual(len(csv_blocks), 1)
+            self.assertIn("[SOURCE: telemetry.csv | LOC: sheet_csv]", csv_blocks[0].text)
+            self.assertIn("mean=102", csv_blocks[0].text)
+            self.assertIn("Row 1:", csv_blocks[0].text)
+
+            xlsx_path = tmp_path / "sensors.xlsx"
+            with pd.ExcelWriter(xlsx_path) as writer:
+                df_sample.to_excel(writer, sheet_name="DropTest", index=False)
+            xlsx_blocks = process_tabular_file(xlsx_path, "EXP_FLEX_01")
+            self.assertEqual(len(xlsx_blocks), 1)
+            self.assertEqual(xlsx_blocks[0].page_or_sec, "sheet_DropTest")
+            self.assertIn("[SOURCE: sensors.xlsx | LOC: sheet_DropTest]", xlsx_blocks[0].text)
+
+            chat_json = tmp_path / "chat_queries.json"
+            chat_json.write_text(
+                json.dumps({"messages": [{"role": "user", "content": "What is the burn rate?"}]}),
+                encoding="utf-8",
+            )
+            q_txt = tmp_path / "query.txt"
+            q_txt.write_text("Compare LOI in microgravity.\n", encoding="utf-8")
+            self.assertEqual(extract_user_queries(chat_json), ["What is the burn rate?"])
+            self.assertEqual(extract_user_queries(q_txt), ["Compare LOI in microgravity."])
 
     def test_08_stage2_vision_igpu_kv_and_rolling_checkpoint(self) -> None:
         """Verify 640px INTER_AREA resize, -c 2048, KV cache release payload, and rolling 5-image resume."""

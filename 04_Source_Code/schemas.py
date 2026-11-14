@@ -33,6 +33,7 @@ class ExperimentIngestBundle(BaseModel):
     experiment_id: str
     text_blocks: list[TextBlock] = Field(default_factory=list)
     visual_assets: list[VisualAsset] = Field(default_factory=list)
+    user_queries: list[str] = Field(default_factory=list)
 
 
 class VisualDescription(BaseModel):
