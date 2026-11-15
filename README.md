@@ -15,10 +15,10 @@ Deep-space habitats (**Artemis**, **Lunar Gateway**, **Orion**) operate with low
 
 **FreiFire** unifies fragmented NASA combustion reports, experimental data tables, and chamber imagery into an actionable physics assistant:
 
-* **Multimodal Data Fusion:** Ingests 19 experimental sources (13 NTRS PDFs, 56-page ISS Reference Guide, 36 CSV/XLSX tables, 299 VLM chamber images, 246 `.webp` plots, and 7 Apollo/Mir historical records) into **748+ knowledge chunks**.
-* **Strict SI Normalization:** Automatically converts legacy Imperial and CGS metrics (`psi`, `atm`, `cm/s`) into unified SI units (`kPa`, `% O2`, `mm/s`, `um`).
-* **Dynamic Multi-Criteria Re-ranking:** Tunes retrieval weights across semantic similarity, target habitat (`Lunar_Base`, `ISS_Earth`, `Spacesuit`), quantitative density, and safety pillar (`Prevention`, `Detection`, `Suppression`, `Partial-G`).
-* **Zero-Core-Modification API Wrapper:** Adds bilingual domain query translation, $< 3\text{s}$ real-time physics explanations (`Qwen3-8B`), and OpenAPI endpoints for **Google AI Studio**.
+- **Multimodal Data Fusion:** Ingests 19 experimental sources (13 NTRS PDFs, 56-page ISS Reference Guide, 36 CSV/XLSX tables, 299 VLM chamber images, 246 `.webp` plots, and 7 Apollo/Mir historical records) into **748+ knowledge chunks**.
+- **Strict SI Normalization:** Automatically converts legacy Imperial and CGS metrics (`psi`, `atm`, `cm/s`) into unified SI units (`kPa`, `% O2`, `mm/s`, `um`).
+- **Dynamic Multi-Criteria Re-ranking:** Tunes retrieval weights across semantic similarity, target habitat (`Lunar_Base`, `ISS_Earth`, `Spacesuit`), quantitative density, and safety pillar (`Prevention`, `Detection`, `Suppression`, `Partial-G`).
+- **Zero-Core-Modification API Wrapper:** Adds bilingual domain query translation, $< 3\text{s}$ real-time physics explanations (`Qwen3-8B`), and OpenAPI endpoints for **Google AI Studio**.
 
 ---
 
@@ -103,7 +103,11 @@ Hackathon_NASA_AI/
 
 1. **Incremental VLM Extraction (`Stage 2`):** Extracts axes, curve trends, and flame morphology from chamber and plot images while skipping already-processed frames in `stage2_vision.json` in $< 0.01\text{s}$.
 2. **Dynamic Weighted Re-ranking (`Stage 3`):** Retrieves Top-30 candidates via $L_2$-normalized `bge-small-en-v1.5` cosine similarity ($S_{\text{FAISS}}$) and re-ranks them:
-   $$\text{Score}_i = \frac{w_{\text{sem}} S_{\text{FAISS}, i} + w_{\text{env}} S_{\text{env}, i} + w_{\text{quant}} S_{\text{quant}, i} + w_{\text{pillar}} S_{\text{pillar}, i}}{w_{\text{sem}} + w_{\text{env}} + w_{\text{quant}} + w_{\text{pillar}}}$$
+
+   ```math
+   \text{Score}_i = \frac{w_{\text{sem}} S_{\text{FAISS}, i} + w_{\text{env}} S_{\text{env}, i} + w_{\text{quant}} S_{\text{quant}, i} + w_{\text{pillar}} S_{\text{pillar}, i}}{w_{\text{sem}} + w_{\text{env}} + w_{\text{quant}} + w_{\text{pillar}}}
+   ```
+
 3. **Local LLM Synthesis (`Stage 4` & `Gateway`):** `Qwen3-8B` (`llama-server`) enforces structured JSON SI extraction offline and generates cited `[PSI-ID]` physics explanations in $< 3\text{s}$ using `/no_think` mode.
 
 ### SI Unit Normalization
