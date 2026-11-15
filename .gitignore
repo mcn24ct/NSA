@@ -1,13 +1,16 @@
-# Bỏ qua toàn bộ các thư mục nặng và thư mục không dùng tới
+# 1. Bo qua thu muc anh trich xuat trong artifacts
+04_Source_Code/artifacts/extracted_visuals/
+**/artifacts/extracted_visuals/
+extracted_visuals/
+
+# 2. Bo qua trong so mo hinh, runtime venv va du lieu tho nang (>100MB GitHub limit)
 01_Models_Weights/
 02_Runtime_Engines/
 03_Datasets_NASA/
-Agent/
 
-# Bỏ qua các file rác sinh ra trong quá trình chạy Python bên trong 04_Source_Code
+# 3. Bo qua cache Python va tep tam
 __pycache__/
 *.py[cod]
-.venv/
-venv/
+*.gguf
+*.onnx
 .env
-.ipynb_checkpoints/
