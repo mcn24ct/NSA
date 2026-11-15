@@ -69,7 +69,7 @@ Giống như bạn nhờ một chuyên gia nhìn vào biểu đồ và nói: *"T
 
 ---
 
-### 🔍 Giai Đoạn 3 — Tổng Hợp & Lập Chỉ Mục Vector (`stage3_index.py`)
+### Giai Đoạn 3 — Tổng Hợp & Lập Chỉ Mục Vector (`stage3_index.py`)
 
 **Làm gì:**  
 Giống như xây dựng một **thư viện tra cứu siêu thông minh** — bạn hỏi gì, hệ thống tìm ngay đoạn văn bản liên quan nhất.
