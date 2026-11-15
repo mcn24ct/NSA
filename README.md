@@ -102,13 +102,12 @@ Hackathon_NASA_AI/
 ## Core AI Mechanics
 
 1. **Incremental VLM Extraction (`Stage 2`):** Extracts axes, curve trends, and flame morphology from chamber and plot images while skipping already-processed frames in `stage2_vision.json` in $< 0.01\text{s}$.
-2. **Dynamic Weighted Re-ranking (`Stage 3`):** Retrieves Top-30 candidates via $L_2$-normalized `bge-small-en-v1.5` cosine similarity ($S_{\text{FAISS}}$) and re-ranks them:
-
-   ```math
-   \text{Score}_i = \frac{w_{\text{sem}} S_{\text{FAISS}, i} + w_{\text{env}} S_{\text{env}, i} + w_{\text{quant}} S_{\text{quant}, i} + w_{\text{pillar}} S_{\text{pillar}, i}}{w_{\text{sem}} + w_{\text{env}} + w_{\text{quant}} + w_{\text{pillar}}}
-   ```
-
+2. **Dynamic Weighted Re-ranking (`Stage 3`):** Retrieves Top-30 candidates via $L_2$-normalized `bge-small-en-v1.5` cosine similarity ($S_{\text{FAISS}}$) and re-ranks them using the multi-criteria weighted score ($\text{Score}_i$) defined below.
 3. **Local LLM Synthesis (`Stage 4` & `Gateway`):** `Qwen3-8B` (`llama-server`) enforces structured JSON SI extraction offline and generates cited `[PSI-ID]` physics explanations in $< 3\text{s}$ using `/no_think` mode.
+
+$$
+\text{Score}_i = \frac{w_{\text{sem}} S_{\text{FAISS}, i} + w_{\text{env}} S_{\text{env}, i} + w_{\text{quant}} S_{\text{quant}, i} + w_{\text{pillar}} S_{\text{pillar}, i}}{w_{\text{sem}} + w_{\text{env}} + w_{\text{quant}} + w_{\text{pillar}}}
+$$
 
 ### SI Unit Normalization
 
