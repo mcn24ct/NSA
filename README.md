@@ -1,4 +1,4 @@
-# Flame in Freefall — Write-up Dự Án
+# Flame in Freefall — FreiFire
 
 > **NASA Hackathon · AI Pipeline · Microgravity Combustion Analysis**
 
