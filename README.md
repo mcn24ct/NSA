@@ -4,251 +4,251 @@
 
 ---
 
-## Tóm tắt một câu
+## One-Sentence Summary
 
-> **Flame in Freefall** là một hệ thống AI chạy hoàn toàn offline trên máy tính cá nhân, tự động đọc hàng trăm trang tài liệu khoa học & video thí nghiệm cháy nổ trong không trọng lực của NASA, trích xuất dữ liệu kỹ thuật, và xếp hạng các thí nghiệm theo độ quan trọng với ứng dụng an toàn cháy nổ ngoài vũ trụ.
-
----
-
-## Vấn đề đang giải quyết
-
-NASA thực hiện hàng chục thí nghiệm đốt cháy vật liệu trong môi trường **không trọng lực (microgravity)** trên Trạm Vũ Trụ Quốc Tế (ISS). Dữ liệu từ các thí nghiệm này được lưu trữ dưới dạng:
-
-- **PDF báo cáo kỹ thuật** dày hàng trăm trang, chứa đầy biểu đồ, số liệu, hình ảnh ngọn lửa
-- **Video** quay cảnh ngọn lửa hình cầu trôi nổi trong buồng thí nghiệm
-
-**Vấn đề:** Các nhà nghiên cứu tốn rất nhiều giờ đọc thủ công để tổng hợp và so sánh kết quả giữa các thí nghiệm.
-
-**Mục tiêu của dự án:** Dùng AI để tự động hóa toàn bộ quá trình này, từ đọc tài liệu → hiểu biểu đồ → trích xuất số liệu → xếp hạng thí nghiệm.
+> **Flame in Freefall** is a fully offline AI system running on a personal computer that automatically reads hundreds of pages of scientific documents and microgravity combustion experiment videos from NASA, extracts technical metrics, and ranks the experiments by relevance to space fire safety applications.
 
 ---
 
-## Ý tưởng cốt lõi
+## The Problem Being Solved
 
-Hệ thống mô phỏng cách một **chuyên gia nghiên cứu** làm việc, chia thành 5 bước nối tiếp nhau:
+NASA conducts dozens of material combustion experiments in **microgravity** aboard the International Space Station (ISS). Data from these experiments is stored as:
 
+- **Technical PDF reports** spanning hundreds of pages, packed with charts, numerical tables, and flame imagery
+- **Videos** capturing spherical flames floating inside combustion chambers
+
+**The Problem:** Researchers spend countless hours manually reading documents to synthesize and compare results across experiments.
+
+**Project Goal:** Use AI to automate the entire workflow—from document ingestion -> chart understanding -> metric extraction -> experiment ranking.
+
+---
+
+## Core Concept
+
+The system mimics how a **research specialist** works, broken down into 5 sequential stages:
+
+```text
+NASA Documents -> Ingest & Filter -> Vision Understanding -> Vector Indexing -> AI Analysis -> Ranking
 ```
-Tài liệu NASA → Đọc & Lọc → Hiểu Hình Ảnh → Lập Chỉ Mục → Phân Tích AI → Xếp Hạng
-```
 
-Toàn bộ pipeline chạy **100% offline** trên máy tính thông thường (không cần GPU rời đắt tiền, không cần internet).
+The entire pipeline runs **100% offline** on standard consumer hardware (no expensive discrete GPU or internet connection required).
 
 ---
 
-## Kiến Trúc 5 Giai Đoạn
+## 5-Stage Architecture
 
-### Giai Đoạn 1 — Đọc & Lọc Tài Liệu (`stage1_ingest.py`)
+### Stage 1 — Document Ingestion & Filtering (`stage1_ingest.py`)
 
-**Làm gì:**  
-Giống như bạn đang ngồi đọc và đánh dấu trang tài liệu, nhưng máy tính làm thay.
+**What it does:**  
+Just like sitting down to read and bookmark key pages of a report, except the computer does it for you.
 
-**Cụ thể:**
-- **PDF:** Dùng `PyMuPDF` để đọc từng trang, trích text và hình ảnh. Lọc bỏ ảnh nhỏ (logo, icon) — chỉ giữ ảnh có kích thước ≥ 200×200 pixel (đủ lớn để chứa thông tin thực sự).
-- **Video:** Dùng `OpenCV` phân tích từng frame, tính độ khác biệt giữa các frame để tự động chọn ra 5–10 "keyframe" quan trọng nhất (thời điểm bắt lửa, cháy ổn định hình cầu, tắt lửa) — không cần xem từng frame thủ công.
-- Tất cả ảnh được resize về kích thước tối đa 1024px để AI xử lý nhanh hơn.
+**Details:**
+- **PDF:** Uses `PyMuPDF` to parse each page, extracting text and images. Filters out small graphics (logos, icons)—retaining only images $\ge 200 \times 200$ pixels (large enough to contain meaningful data).
+- **Video:** Uses `OpenCV` to analyze frames and compute inter-frame differences, automatically selecting the 5–10 most critical "keyframes" (ignition, steady spherical burning, extinction)—eliminating manual frame-by-frame review.
+- All images are resized to a maximum dimension of 1024px for faster AI inference.
 
-**Kết quả:** `stage1_ingest.json` — danh sách toàn bộ text và hình ảnh đã được tổ chức theo từng thí nghiệm.
-
----
-
-### Giai Đoạn 2 — AI Nhìn & Mô Tả Hình Ảnh (`stage2_vision.py`)
-
-**Làm gì:**  
-Giống như bạn nhờ một chuyên gia nhìn vào biểu đồ và nói: *"Trục X là thời gian (s), trục Y là áp suất (kPa), giá trị cao nhất là 150 kPa..."*
-
-**Model AI sử dụng:**  
-`Qwen2.5-VL-3B` — một AI đa phương thức (nhìn được hình ảnh) chạy trên GPU tích hợp AMD Radeon 860M qua Vulkan.
-
-**Cụ thể:**
-- Với **biểu đồ:** AI đọc tên trục, đơn vị đo, giá trị min/max.
-- Với **ảnh ngọn lửa:** AI mô tả màu sắc ngọn lửa, hình dạng có cân đối cầu không, có xuất hiện bồ hóng (soot) hay không.
-- Nhiệt độ `temperature=0.1` → AI trả lời chính xác, không "sáng tạo" ngẫu nhiên.
-- Sau khi xong, **giải phóng 100% VRAM** bằng `psutil` để giai đoạn sau dùng.
-
-**Kết quả:** `stage2_vision.json` — mô tả kỹ thuật bằng chữ cho mọi hình ảnh.
+**Output:** `stage1_ingest.json` — a structured catalog of all text and images organized by experiment.
 
 ---
 
-### Giai Đoạn 3 — Tổng Hợp & Lập Chỉ Mục Vector (`stage3_index.py`)
+### Stage 2 — AI Vision & Image Captioning (`stage2_vision.py`)
 
-**Làm gì:**  
-Giống như xây dựng một **thư viện tra cứu siêu thông minh** — bạn hỏi gì, hệ thống tìm ngay đoạn văn bản liên quan nhất.
+**What it does:**  
+Like asking a domain expert to look at a chart and say: *"The X-axis is time (s), the Y-axis is pressure (kPa), and the peak value is 150 kPa..."*
 
-**Cụ thể:**
-1. **Gộp dữ liệu:** Kết hợp text từ PDF (Giai đoạn 1) và mô tả hình ảnh từ AI (Giai đoạn 2) thành một kho văn bản thống nhất.
-2. **Chia đoạn (Chunking):** Cắt văn bản thành các đoạn ≤380 từ, chồng lấp 50 từ để không mất ngữ cảnh. Thêm nhãn truy xuất nguồn vào đầu mỗi đoạn:
-   ```
+**AI Model Used:**  
+`Qwen2.5-VL-3B` — a multimodal vision-language model running on an integrated AMD Radeon 860M GPU via Vulkan.
+
+**Details:**
+- For **charts/plots:** The AI extracts axis labels, measurement units, and min/max values.
+- For **flame imagery:** The AI describes flame color, spherical symmetry, and the presence of soot.
+- Set to `temperature=0.1` -> ensures deterministic, accurate descriptions without random "creativity."
+- Upon completion, **100% of VRAM is freed** via `psutil` so the next stage can utilize it.
+
+**Output:** `stage2_vision.json` — detailed technical text descriptions for every extracted image.
+
+---
+
+### Stage 3 — Synthesis & Vector Indexing (`stage3_index.py`)
+
+**What it does:**  
+Like building a **smart reference library**—ask any question, and the system immediately pinpoints the most relevant passage.
+
+**Details:**
+1. **Data Merging:** Combines extracted PDF text (Stage 1) and AI-generated image descriptions (Stage 2) into a unified text corpus.
+2. **Chunking:** Splits text into chunks of $\le 380$ words with a 50-word overlap to preserve context. Prepends a source-tracking tag to every chunk:
+   ```text
    [EXP: EXP_FLEX_01 | SOURCE: 20150023456.pdf | LOC: page_76]
    ```
-3. **Tạo vector embedding:** Dùng model `bge-small-en-v1.5` (chạy ONNX trên CPU) để biến mỗi đoạn văn thành một vector 384 chiều — giống như "tọa độ ý nghĩa" trong không gian ngữ nghĩa.
-4. **Lưu vào FAISS:** Toàn bộ vector được lưu vào cơ sở dữ liệu tìm kiếm siêu nhanh FAISS — tìm đoạn văn gần nhất chỉ trong mili-giây.
+3. **Vector Embeddings:** Uses `bge-small-en-v1.5` (running via ONNX on CPU) to convert each text chunk into a 384-dimensional vector—acting as "semantic coordinates" in meaning space.
+4. **FAISS Storage:** Stores all vectors in a high-speed FAISS vector database—retrieving the closest passages in milliseconds.
 
-**Kết quả:** `nasa_flame.index` + `chunks_metadata.json`
+**Output:** `nasa_flame.index` + `chunks_metadata.json`
 
 ---
 
-### Giai Đoạn 4 — AI Phân Tích & Trích Xuất Số Liệu (`stage4_rank.py`)
+### Stage 4 — AI Analysis & Metric Extraction (`stage4_rank.py`)
 
-**Làm gì:**  
-Giống như nhờ một chuyên gia đọc 6 đoạn tài liệu liên quan nhất và điền vào một biểu mẫu chuẩn hóa.
+**What it does:**  
+Like having a specialist read the 6 most relevant document passages and fill out a standardized data sheet.
 
-**Model AI sử dụng:**  
-`Qwen3-8B` — LLM lớn hơn (8 tỷ tham số) chạy trên GPU, tối ưu cho suy luận.
+**AI Model Used:**  
+`Qwen3-8B` — a larger 8-billion-parameter LLM running on GPU, optimized for reasoning and structured extraction.
 
-**Quy trình RAG (Retrieval-Augmented Generation):**
-1. Với mỗi thí nghiệm, hệ thống đặt 3 câu hỏi chuyên ngành (về áp suất, oxy, tốc độ cháy...) vào FAISS.
-2. FAISS trả về **Top-6 đoạn văn liên quan nhất** (theo từng thí nghiệm).
-3. AI đọc 6 đoạn đó và trả về JSON chuẩn hóa, **bắt buộc** phải có:
-   - Áp suất buồng thí nghiệm (đơn vị: **kPa**)
-   - Nồng độ oxy (đơn vị: **%**)
-   - Tốc độ cháy (đơn vị: **mm/s**)
-   - Thời gian cháy (đơn vị: **s**)
-   - Trích dẫn nguồn `[SOURCE | LOC]`
+**RAG (Retrieval-Augmented Generation) Workflow:**
+1. For each experiment, the system queries FAISS with 3 domain-specific questions (covering chamber pressure, oxygen concentration, burn rate, etc.).
+2. FAISS returns the **Top-6 most relevant passages** (filtered per experiment).
+3. The AI reads those 6 passages and outputs standardized JSON, **strictly enforcing** the extraction of:
+   - Chamber pressure (unit: **kPa**)
+   - Oxygen concentration (unit: **%**)
+   - Burn rate (unit: **mm/s**)
+   - Burn duration (unit: **s**)
+   - Source citations `[SOURCE | LOC]`
 
 > [!NOTE]
-> AI chạy ở chế độ `enable_thinking: false` + `/no_think` → phản hồi trực tiếp, không "suy nghĩ dài dòng", tiết kiệm thời gian và VRAM.
+> The LLM runs with `enable_thinking: false` + `/no_think` -> producing direct responses without verbose chain-of-thought overhead, saving both time and VRAM.
 
-**Kết quả:** `stage4_rank.json` — dữ liệu kỹ thuật chuẩn hóa, có trích dẫn nguồn.
-
----
-
-### Giai Đoạn 5 — Tính Điểm & Xuất Báo Cáo (`scoring_engine.py` + `stage5_export.py`)
-
-**Làm gì:**  
-Chấm điểm từng thí nghiệm dựa trên công thức toán học minh bạch, rồi xuất báo cáo.
-
-**Công thức điểm:**
-
-| Tiêu chí | Trọng số | Giải thích |
-|---|---|---|
-| Flame Stability (Độ ổn định ngọn lửa) | 25% | Ngọn lửa hình cầu, cân đối → an toàn |
-| Fire Safety (An toàn cháy nổ) | 25% | Khả năng dập tắt, hành vi với vật liệu tàu vũ trụ |
-| Data Completeness (Độ đầy đủ dữ liệu) | 15% | Càng nhiều sensor, dữ liệu càng tin cậy |
-| Burn Rate chuẩn hóa | 15% | Min-Max scaling tốc độ cháy |
-| Burn Duration chuẩn hóa | 10% | Min-Max scaling thời gian cháy |
-| Oxygen Margin chuẩn hóa | 10% | Min-Max scaling nồng độ oxy |
-
-**Cơ chế phạt (Confidence Penalty):**
-- Mỗi trường dữ liệu bị thiếu (null): **-4 điểm**
-- Không có trích dẫn nguồn: **-10 điểm**
-- Phạt tối đa: **-35 điểm** (không âm vô hạn)
-
-**Điểm đặc biệt — Relevance Score (Điểm phù hợp môi trường):**  
-Hệ thống tính điểm phù hợp với 3 môi trường vũ trụ dựa vào áp suất và nồng độ oxy:
-- **ISS / Trạm Vũ Trụ** (101.35 kPa, 21% O2)
-- **Căn cứ Mặt Trăng / Rover** (≤70.33 kPa, ≥30% O2)
-- **Bộ đồ EVA / Spacesuit** (29.65 kPa, 100% O2)
-
-**Kết quả xuất ra:**
-- `NASA_Flame_Ranking.xlsx` — Excel 2 sheet: Bảng xếp hạng + Chi tiết từng thí nghiệm
-- `NASA_Flame_Report.md` — Báo cáo markdown đầy đủ, có trích dẫn nguồn
+**Output:** `stage4_rank.json` — standardized technical metrics backed by verifiable source citations.
 
 ---
 
-## 💾 Phần Cứng & Tối Ưu Bộ Nhớ
+### Stage 5 — Scoring & Report Export (`scoring_engine.py` + `stage5_export.py`)
 
-| Thành phần | Chi tiết |
-|---|---|
-| CPU | Multi-core (Stage 1, 3, 5) |
+**What it does:**  
+Scores each experiment using a transparent mathematical formula and exports human-readable reports.
+
+**Scoring Formula:**
+
+| Criterion | Weight | Description |
+| :--- | :--- | :--- |
+| Flame Stability | 25% | Spherical, symmetrical flame -> safer, predictable behavior |
+| Fire Safety | 25% | Extinguishability and interaction with spacecraft materials |
+| Data Completeness | 15% | More sensor readings yield higher confidence |
+| Normalized Burn Rate | 15% | Min-Max scaling of burn rate |
+| Normalized Burn Duration | 10% | Min-Max scaling of burn duration |
+| Normalized Oxygen Margin | 10% | Min-Max scaling of oxygen concentration |
+
+**Confidence Penalty Mechanism:**
+- Each missing (`null`) data field: **-4 points**
+- Missing source citation: **-10 points**
+- Maximum penalty cap: **-35 points** (prevents unbounded negative scores)
+
+**Key Feature — Environment Relevance Score:**  
+The system evaluates suitability across 3 spaceflight environments based on pressure and oxygen concentration:
+- **ISS / Space Station** ($101.35\text{ kPa}$, $21\%\ \text{O}_2$)
+- **Lunar Base / Rover** ($\le 70.33\text{ kPa}$, $\ge 30\%\ \text{O}_2$)
+- **EVA Suit / Spacesuit** ($29.65\text{ kPa}$, $100\%\ \text{O}_2$)
+
+**Outputs:**
+- `NASA_Flame_Ranking.xlsx` — 2-sheet Excel workbook: Overall Ranking + Experiment Details
+- `NASA_Flame_Report.md` — Comprehensive Markdown report with full source citations
+
+---
+
+## Hardware & Memory Optimization
+
+| Component | Details |
+| :--- | :--- |
+| CPU | Multi-core (Stages 1, 3, 5) |
 | GPU | AMD Radeon 860M iGPU (Vulkan backend) |
-| RAM hệ thống | 23.1 GB |
-| VRAM | Dùng chung với RAM (shared memory) |
+| System RAM | 23.1 GB |
+| VRAM | Shared with system memory |
 
 > [!IMPORTANT]
-> **Vấn đề lớn nhất:** GPU tích hợp có VRAM rất giới hạn (dùng chung với RAM). Không thể chạy 2 model AI cùng lúc.
+> **Biggest Bottleneck:** Integrated GPUs have tightly constrained VRAM (shared with system RAM), making it impossible to load two AI models simultaneously.
 >
-> **Giải pháp:** Mỗi khi xong một giai đoạn dùng AI, hệ thống **giết tiến trình `llama-server.exe` ngay lập tức** bằng `psutil`, giải phóng 100% VRAM trước khi khởi động model tiếp theo.
+> **Solution:** Immediately after each AI stage completes, the system **terminates the `llama-server.exe` process** via `psutil`, reclaiming 100% of VRAM before spinning up the next model.
 
-```
-Stage 2 (VLM 3B) chạy xong → psutil kill → Giải phóng ~3.4 GB VRAM
-Stage 4 (LLM 8B) chạy xong → psutil kill → Giải phóng ~5.6 GB VRAM
+```text
+Stage 2 (VLM 3B) finishes -> psutil kill -> Frees ~3.4 GB VRAM
+Stage 4 (LLM 8B) finishes -> psutil kill -> Frees ~5.6 GB VRAM
 ```
 
 ---
 
-## Cấu Trúc File Dự Án
+## Project File Structure
 
-```
+```text
 NSA/
 └── 04_Source_Code/
-    ├── main.py                  # Điều phối toàn bộ 5 giai đoạn
-    ├── config.py                # Cấu hình đường dẫn & hyperparameter
+    ├── main.py                  # Orchestrates all 5 pipeline stages
+    ├── config.py                # Path configurations & hyperparameters
     ├── schemas.py               # Pydantic data models (ExperimentExtraction, ScoredExperiment)
-    ├── llm_client.py            # Quản lý vòng đời llama-server (psutil guard)
-    ├── stage1_ingest.py         # Giai đoạn 1: Đọc PDF + Video
-    ├── stage2_vision.py         # Giai đoạn 2: VLM phân tích hình ảnh
-    ├── stage3_index.py          # Giai đoạn 3: Chunking + FAISS indexing
-    ├── stage4_rank.py           # Giai đoạn 4: RAG + LLM trích xuất
-    ├── stage5_export.py         # Giai đoạn 5: Xuất Excel + Report
-    ├── scoring_engine.py        # Thuật toán tính điểm
-    ├── pipeline_visualizer.py   # Visualize kiến trúc pipeline
-    ├── ARCHITECTURE.md          # Tài liệu kỹ thuật đầy đủ
-    ├── PIPELINE_FLOW.md         # Sơ đồ luồng dữ liệu
+    ├── llm_client.py            # llama-server lifecycle management (psutil guard)
+    ├── stage1_ingest.py         # Stage 1: PDF + Video ingestion
+    ├── stage2_vision.py         # Stage 2: VLM image analysis
+    ├── stage3_index.py          # Stage 3: Chunking + FAISS indexing
+    ├── stage4_rank.py           # Stage 4: RAG + LLM extraction
+    ├── stage5_export.py         # Stage 5: Excel + Report export
+    ├── scoring_engine.py        # Scoring & relevance calculation engine
+    ├── pipeline_visualizer.py   # Pipeline architecture visualizer
+    ├── ARCHITECTURE.md          # Full technical documentation
+    ├── PIPELINE_FLOW.md         # Data flow diagrams
     └── artifacts/
-        ├── stage1_ingest.json   # Checkpoint Giai đoạn 1
-        ├── stage2_vision.json   # Checkpoint Giai đoạn 2
+        ├── stage1_ingest.json   # Stage 1 checkpoint
+        ├── stage2_vision.json   # Stage 2 checkpoint
         ├── nasa_flame.index     # FAISS vector index
-        ├── chunks_metadata.json # Metadata các đoạn văn
-        ├── stage4_rank.json     # Checkpoint Giai đoạn 4
-        ├── stage5_scored.json   # Kết quả điểm cuối
-        ├── NASA_Flame_Ranking.xlsx  # Báo cáo Excel
-        └── NASA_Flame_Report.md     # Báo cáo Markdown
+        ├── chunks_metadata.json # Text chunk metadata
+        ├── stage4_rank.json     # Stage 4 checkpoint
+        ├── stage5_scored.json   # Final scored results
+        ├── NASA_Flame_Ranking.xlsx  # Excel report
+        └── NASA_Flame_Report.md     # Markdown report
 ```
 
 ---
 
-## Kết Quả Thực Tế
+## Sample Results
 
-Từ file `NASA_Flame_Report.md` đã chạy:
+From a completed run of `NASA_Flame_Report.md`:
 
-| Rank | Thí nghiệm | Nhiên liệu | Áp suất | O2 | Tốc độ cháy | Điểm |
-|---|---|---|---|---|---|---|
-| **#1** | `EXP_FLEX_01` | n-Heptane | 101.33 kPa | 20% | 1.2 mm/s | **94.70/100** |
+| Rank | Experiment | Fuel | Pressure | $\text{O}_2$ | Burn Rate | Score |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **#1** | `EXP_FLEX_01` | n-Heptane | $101.33\text{ kPa}$ | $20\%$ | $1.2\text{ mm/s}$ | **94.70/100** |
 
-**Điểm phù hợp môi trường:**
-- ISS: **99.56/100** (phù hợp nhất)
-- Căn cứ Mặt Trăng: **81.15/100**
-- Bộ đồ EVA: **44.59/100**
+**Environment Relevance Scores:**
+- ISS: **99.56/100** (best match)
+- Lunar Base: **81.15/100**
+- EVA Suit: **44.59/100**
 
 ---
 
-## Luồng Dữ Liệu Tổng Quan
+## End-to-End Data Flow
 
 ```mermaid
 flowchart TD
-    A["NASA PDFs & Videos"] --> B["Stage 1\nĐọc & Lọc\nPyMuPDF + OpenCV"]
-    B --> C["Stage 2\nAI Nhìn Hình\nQwen2.5-VL-3B\niGPU Vulkan"]
-    C --> D["Stage 3\nLập Chỉ Mục Vector\nBGE-Small ONNX + FAISS"]
-    D --> E["Stage 4\nAI Phân Tích RAG\nQwen3-8B\niGPU Vulkan"]
-    E --> F["Stage 5\nTính Điểm & Xuất Báo Cáo\nMin-Max + Weights"]
-    F --> G["Excel + Markdown\nKết Quả Xếp Hạng"]
+    A["NASA PDFs & Videos"] --> B["Stage 1\nIngest & Filter\nPyMuPDF + OpenCV"]
+    B --> C["Stage 2\nAI Vision Analysis\nQwen2.5-VL-3B\niGPU Vulkan"]
+    C --> D["Stage 3\nVector Indexing\nBGE-Small ONNX + FAISS"]
+    D --> E["Stage 4\nRAG Extraction\nQwen3-8B\niGPU Vulkan"]
+    E --> F["Stage 5\nScoring & Export\nMin-Max + Weights"]
+    F --> G["Excel + Markdown\nRanked Output"]
 ```
 
 ---
 
-## Cách Chạy
+## How to Run
 
 ```bash
-# Chạy toàn bộ pipeline
+# Run the full pipeline
 python main.py
 
-# Bỏ qua checkpoint đã lưu, chạy lại từ đầu
+# Ignore saved checkpoints and run from scratch
 python main.py --force
 
-# Hiển thị sơ đồ kiến trúc
+# Display the architecture diagram
 python main.py --describe
 ```
 
 ---
 
-## Điểm Nổi Bật Kỹ Thuật
+## Key Technical Highlights
 
-| Điểm mạnh | Chi tiết |
-|---|---|
-| **Chạy offline hoàn toàn** | Không cần API trả phí, không cần internet |
-| **Checkpoint system** | Pipeline dừng giữa chừng vẫn tiếp tục được từ chỗ dừng |
-| **VRAM management nghiêm ngặt** | `psutil` đảm bảo 100% giải phóng VRAM giữa các giai đoạn |
-| **Trích dẫn nguồn tự động** | Mọi số liệu đều có `[SOURCE | LOC]` để verify |
-| **Pydantic schema enforcement** | AI không được tự bịa đơn vị, phải trả JSON chuẩn |
-| **Multi-query RAG** | 3 câu hỏi chuyên ngành cho mỗi thí nghiệm → kết quả toàn diện hơn |
-| **Phù hợp hardware phổ thông** | Chạy được trên laptop AMD Radeon iGPU, không cần GPU rời |
+| Strength | Details |
+| :--- | :--- |
+| **100% Offline Execution** | No paid APIs or internet connection required |
+| **Checkpoint System** | Resumes seamlessly from the last completed stage if interrupted |
+| **Strict VRAM Management** | `psutil` guarantees 100% VRAM release between model stages |
+| **Automated Source Citations** | Every metric includes `[SOURCE | LOC]` for instant verification |
+| **Pydantic Schema Enforcement** | Prevents unit hallucination by enforcing strict JSON schemas |
+| **Multi-Query RAG** | 3 domain-specific queries per experiment -> higher recall and accuracy |
+| **Consumer Hardware Friendly** | Runs smoothly on standard laptops with AMD Radeon iGPUs—no discrete GPU needed |
