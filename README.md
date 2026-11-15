@@ -87,7 +87,7 @@ Giống như xây dựng một **thư viện tra cứu siêu thông minh** — b
 
 ---
 
-### 🤖 Giai Đoạn 4 — AI Phân Tích & Trích Xuất Số Liệu (`stage4_rank.py`)
+### Giai Đoạn 4 — AI Phân Tích & Trích Xuất Số Liệu (`stage4_rank.py`)
 
 **Làm gì:**  
 Giống như nhờ một chuyên gia đọc 6 đoạn tài liệu liên quan nhất và điền vào một biểu mẫu chuẩn hóa.
