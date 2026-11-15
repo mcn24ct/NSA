@@ -7,9 +7,14 @@ from typing import Any
 
 import pandas as pd
 
-import config
+SOURCE_DIR = Path(__file__).resolve().parent
+if str(SOURCE_DIR) not in sys.path:
+    sys.path.insert(0, str(SOURCE_DIR))
+
+from api_gateway import explain_physics_with_qwen
 from stage3_index import search_weighted
 from stage5_export import build_summary_tables, export_studio_payload
+from translator_layer import translate_to_english_query
 
 DEFAULT_QUERY: str = (
     "Áp suất và tốc độ gió của các thí nghiệm cháy vật liệu rắn trên Mặt Trăng"
@@ -25,21 +30,25 @@ def run_weighted_query_pipeline(
     w_quantitative: float = 0.30,
     top_k: int = 8,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any]]:
-    """Execute weighted Stage 3 FAISS search and build both SI-normalized pandas DataFrames."""
+    """Translate query, execute weighted Stage 3 FAISS search, and build SI-normalized DataFrames."""
+    translation = translate_to_english_query(query)
+    english_query = str(translation["translated_query"])
     weights: dict[str, Any] = {
         "w_semantic": w_semantic,
         "w_env_target": env_target,
         "w_env_weight": w_env_weight,
         "w_quantitative": w_quantitative,
         "w_pillar": pillar,
+        "translated_query": english_query,
+        "is_translated": bool(translation["is_translated"]),
     }
-    results = search_weighted(query=query, weights=weights, top_k=top_k)
+    results = search_weighted(query=english_query, weights=weights, top_k=top_k)
     df_metrics, df_evidence = build_summary_tables(results)
     return df_metrics, df_evidence, weights
 
 
 def render_streamlit_ui() -> None:
-    """Render minimalist Streamlit interface for testing Stage 3 dynamic weights and tables."""
+    """Render minimalist Streamlit interface for testing Stage 3 dynamic weights, tables, and Qwen3-8B."""
     import streamlit as st
 
     st.set_page_config(page_title="Flame in Freefall - Minimal UI Test", layout="wide")
@@ -72,6 +81,7 @@ def render_streamlit_ui() -> None:
         w_quantitative=w_quantitative,
         top_k=top_k,
     )
+    st.caption(f"Translated BGE Query: `{weights.get('translated_query', query)}`")
 
     st.subheader("1. SI-Normalized Experiment Metrics Summary (df_metrics_summary)")
     st.dataframe(df_metrics, use_container_width=True)
@@ -79,9 +89,16 @@ def render_streamlit_ui() -> None:
     st.subheader("2. Ranked Evidence Chunks (df_evidence_chunks)")
     st.dataframe(df_evidence, use_container_width=True)
 
-    if st.button("Export artifacts/studio_payload.json"):
-        out_path = export_studio_payload(query, weights, df_metrics, df_evidence)
-        st.success(f"Exported Google Studio payload to: {out_path}")
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Phân tích Vật lý với Qwen3-8B"):
+            explanation = explain_physics_with_qwen(query, df_metrics, df_evidence)
+            st.subheader("3. Giải thích Cơ chế Vật lý Vi trọng lực (physics_explanation)")
+            st.info(explanation)
+    with col2:
+        if st.button("Export artifacts/studio_payload.json"):
+            out_path = export_studio_payload(query, weights, df_metrics, df_evidence)
+            st.success(f"Exported Google Studio payload to: {out_path}")
 
 
 def main() -> None:
@@ -93,6 +110,7 @@ def main() -> None:
     if args.cli or "streamlit" not in sys.modules:
         df_metrics, df_evidence, weights = run_weighted_query_pipeline()
         out_path = export_studio_payload(DEFAULT_QUERY, weights, df_metrics, df_evidence)
+        print(f"=== TRANSLATED QUERY: {weights.get('translated_query')} ===")
         print("=== TABLE 1: df_metrics_summary (SI Units: kPa, %, mm/s) ===")
         print(df_metrics.to_string(index=False))
         print("\n=== TABLE 2: df_evidence_chunks (Top-K Reranked) ===")

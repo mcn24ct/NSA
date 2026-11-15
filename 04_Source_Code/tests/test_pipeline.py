@@ -515,6 +515,124 @@ class TestFlameInFreefallPipeline(unittest.TestCase):
         self.assertIn("Max_Airflow_mm_s", df_metrics.columns)
         self.assertIn("Final_Weighted_Score", df_evidence.columns)
 
+    def test_10_translator_layer_bilingual_and_fallback(self) -> None:
+        """Verify English passthrough, Vietnamese NASA glossary fallback, and Qwen3-8B /no_think translation."""
+        from unittest.mock import MagicMock, patch
+        import requests
+        from translator_layer import translate_to_english_query
+
+        en_q = "What is the flame spread rate of PMMA in Lunar Base microgravity?"
+        res_en = translate_to_english_query(en_q)
+        self.assertFalse(res_en["is_translated"])
+        self.assertEqual(res_en["translated_query"], en_q)
+        self.assertEqual(res_en["method"], "passthrough")
+
+        vi_q = "Tốc độ cháy lan và điểm bốc khói của ngọn lửa lạnh trên Mặt Trăng trong vi trọng lực"
+        with patch("translator_layer.requests.post", side_effect=requests.RequestException("offline")):
+            res_fb = translate_to_english_query(vi_q)
+            self.assertTrue(res_fb["is_translated"])
+            self.assertEqual(res_fb["method"], "dictionary_fallback")
+            self.assertIn("flame spread rate", res_fb["translated_query"])
+            self.assertIn("smoke point", res_fb["translated_query"])
+            self.assertIn("cool flame", res_fb["translated_query"])
+            self.assertIn("Lunar Base", res_fb["translated_query"])
+            self.assertIn("microgravity", res_fb["translated_query"])
+
+        with patch("translator_layer.requests.post") as mock_post:
+            mock_resp = MagicMock()
+            mock_resp.json.return_value = {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "cool flame spread rate and smoke point in Lunar Base microgravity"
+                        }
+                    }
+                ]
+            }
+            mock_post.return_value = mock_resp
+            res_llm = translate_to_english_query(vi_q)
+            self.assertTrue(res_llm["is_translated"])
+            self.assertEqual(res_llm["method"], "qwen3_8b")
+            self.assertIn("cool flame", res_llm["translated_query"])
+            sent_payload = mock_post.call_args.kwargs["json"]
+            self.assertEqual(sent_payload["chat_template_kwargs"], {"enable_thinking": False})
+            self.assertIn("/no_think", sent_payload["messages"][1]["content"])
+
+    def test_11_api_gateway_endpoints_and_qwen_physics(self) -> None:
+        """Verify FastAPI /api/query, /api/studio-tool-schema, and /health endpoints with mocked Qwen3-8B."""
+        from unittest.mock import MagicMock, patch
+        from fastapi.testclient import TestClient
+        import api_gateway
+
+        client = TestClient(api_gateway.app)
+
+        schema_resp = client.get("/api/studio-tool-schema")
+        self.assertEqual(schema_resp.status_code, 200)
+        schema_data = schema_resp.json()
+        self.assertEqual(schema_data["openapi"], "3.0.3")
+        self.assertIn("/api/query", schema_data["paths"])
+        self.assertTrue(len(schema_data["function_declarations"]) >= 1)
+        self.assertEqual(
+            schema_data["function_declarations"][0]["name"],
+            "query_nasa_microgravity_combustion",
+        )
+
+        health_resp = client.get("/health")
+        self.assertEqual(health_resp.status_code, 200)
+        health_data = health_resp.json()
+        self.assertIn("faiss_index", health_data)
+        self.assertIn("sqlite_db", health_data)
+        self.assertIn("qwen3_8b_server", health_data)
+
+        mock_explanation = (
+            "- Thí nghiệm vật liệu rắn tại `70.33 kPa`, `30.0% O2` và luồng khí `50.0 mm/s` `[PSI-120]`.\n"
+            "- Triệt tiêu đối lưu tự nhiên trong vi trọng lực làm ngọn lửa cầu phụ thuộc khuếch tán `[PSI-120]`.\n"
+            "- Tổn thất bức xạ gây tự tắt ở tốc độ gió thấp `[PSI-120]`."
+        )
+        with (
+            patch("translator_layer.requests.post") as mock_trans_post,
+            patch("api_gateway.ensure_qwen_server_running", return_value=True),
+            patch("api_gateway.requests.post") as mock_phys_post,
+        ):
+            mock_t_resp = MagicMock()
+            mock_t_resp.json.return_value = {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "chamber pressure kPa airflow velocity mm/s solid fuel combustion Lunar Base"
+                        }
+                    }
+                ]
+            }
+            mock_trans_post.return_value = mock_t_resp
+
+            mock_p_resp = MagicMock()
+            mock_p_resp.json.return_value = {
+                "choices": [{"message": {"content": mock_explanation}}]
+            }
+            mock_phys_post.return_value = mock_p_resp
+
+            query_payload = {
+                "query": "Áp suất và tốc độ gió của các thí nghiệm cháy vật liệu rắn trên Mặt Trăng",
+                "w_semantic": 0.5,
+                "w_env_target": "Lunar_Base",
+                "w_quantitative": 0.3,
+                "w_pillar": "Prevention",
+                "top_k": 5,
+                "enable_ai_explanation": True,
+            }
+            q_resp = client.post("/api/query", json=query_payload)
+            self.assertEqual(q_resp.status_code, 200)
+            q_data = q_resp.json()
+            self.assertIn("translated_query", q_data)
+            self.assertTrue(q_data["is_translated"])
+            self.assertIsInstance(q_data["metrics_summary"], list)
+            self.assertIsInstance(q_data["evidence_chunks"], list)
+            self.assertGreater(len(q_data["metrics_summary"]), 0)
+            self.assertGreater(len(q_data["evidence_chunks"]), 0)
+            self.assertIn("kPa", q_data["physics_explanation"])
+            self.assertIn("[PSI-", q_data["physics_explanation"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
